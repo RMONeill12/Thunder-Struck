@@ -1,53 +1,18 @@
-const views = {
-  temp: { title: 'Temperature', subtitle: 'Surface temperature forecast', icon: '☀', overlay: 'temp', product: 'gfs' },
-  radar: { title: 'Lightning Tracker', subtitle: 'Live radar and lightning activity', icon: 'ϟ', overlay: 'radar', product: 'radar' },
-  fog: { title: 'Fog', subtitle: 'Fog and visibility conditions', icon: '≋', overlay: 'fog', product: 'gfs' },
-  rain: { title: 'Rain & Clouds', subtitle: 'Rain, thunder and cloud forecast', icon: '☂', overlay: 'rain', product: 'gfs' }
-};
-const defaults = { lat: 50.4452, lon: -104.6189, name: 'Regina', unit: '°C', view: 'temp' };
-let state;
-try { state = { ...defaults, ...JSON.parse(localStorage.getItem('thunder-struck-settings') || '{}') }; } catch { state = { ...defaults }; }
-
-const map = document.querySelector('#windyMap');
-const mapWrap = document.querySelector('.map-wrap');
-const dialog = document.querySelector('#settingsDialog');
-const toast = document.querySelector('#toast');
-
-function save() { localStorage.setItem('thunder-struck-settings', JSON.stringify(state)); }
-function formatCoordinate(value, positive, negative) { return `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`; }
-function windyUrl(view) {
-  const v = views[view];
-  const metricTemp = state.unit === '°F' ? '°F' : '°C';
-  const p = new URLSearchParams({ lat: state.lat, lon: state.lon, detailLat: state.lat, detailLon: state.lon, width: 1200, height: 700, zoom: 6, level: 'surface', overlay: v.overlay, product: v.product, menu: '', message: 'true', marker: '', calendar: 'now', pressure: '', type: 'map', location: 'coordinates', detail: '', metricWind: 'default', metricTemp, radarRange: '-1' });
-  return `https://embed.windy.com/embed2.html?${p}`;
-}
-function render(reload = true) {
-  const v = views[state.view];
-  document.querySelector('#placeName').textContent = state.name || 'Selected Location';
-  document.querySelector('#coordinates').textContent = `${formatCoordinate(state.lat,'N','S')} · ${formatCoordinate(state.lon,'E','W')}`;
-  document.querySelector('#viewTitle').textContent = v.title;
-  document.querySelector('#viewSubtitle').textContent = v.subtitle;
-  const icon = document.querySelector('#viewIcon'); icon.textContent = v.icon; icon.className = `view-icon ${state.view === 'radar' ? 'lightning' : state.view}`;
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === state.view));
-  if (reload) { mapWrap.classList.remove('loaded'); map.src = windyUrl(state.view); }
-}
-function showToast(message) { toast.textContent = message; toast.classList.add('show'); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove('show'), 2800); }
-
-map.addEventListener('load', () => { mapWrap.classList.add('loaded'); document.querySelector('#updatedText').textContent = `Loaded ${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`; });
-document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { state.view = tab.dataset.view; save(); render(); }));
-document.querySelector('#settingsButton').addEventListener('click', () => {
-  document.querySelector('#latInput').value = state.lat; document.querySelector('#lonInput').value = state.lon; document.querySelector('#nameInput').value = state.name;
-  document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('active', b.dataset.unit === state.unit)); dialog.showModal();
-});
-document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => document.querySelectorAll('[data-unit]').forEach(x => x.classList.toggle('active', x === b))));
-document.querySelector('#saveSettings').addEventListener('click', () => {
-  const lat = Number(document.querySelector('#latInput').value), lon = Number(document.querySelector('#lonInput').value), error = document.querySelector('#settingsError');
-  if (!Number.isFinite(lat) || lat < -85 || lat > 85 || !Number.isFinite(lon) || lon < -180 || lon > 180) { error.textContent = 'Enter a latitude from −85 to 85 and longitude from −180 to 180.'; return; }
-  error.textContent = ''; state.lat = lat; state.lon = lon; state.name = document.querySelector('#nameInput').value.trim() || 'Selected Location'; state.unit = document.querySelector('[data-unit].active').dataset.unit; save(); dialog.close(); render(); showToast('Map location updated');
-});
-document.querySelector('#locateButton').addEventListener('click', () => {
-  if (!navigator.geolocation) return showToast('Location is not available on this device');
-  showToast('Finding your location…');
-  navigator.geolocation.getCurrentPosition(pos => { state.lat = pos.coords.latitude; state.lon = pos.coords.longitude; state.name = 'My Location'; save(); render(); showToast('Showing your current location'); }, () => showToast('Location permission was not granted'), { enableHighAccuracy: true, timeout: 10000 });
-});
-render();
+const views={temp:{title:'Temperature',subtitle:'Surface temperature forecast',icon:'☀',overlay:'temp',product:'gfs'},radar:{title:'Lightning Tracker',subtitle:'Live radar and lightning activity',icon:'ϟ',overlay:'radar',product:'radar'},fog:{title:'Fog',subtitle:'Fog and visibility conditions',icon:'≋',overlay:'fog',product:'gfs'},rain:{title:'Rain & Clouds',subtitle:'Rain, thunder and cloud forecast',icon:'☂',overlay:'rain',product:'gfs'}};
+const defaults={lat:50.4452,lon:-104.6189,name:'Regina',unit:'°C',view:'temp',range:'hourly',dark:true};let state;try{state={...defaults,...JSON.parse(localStorage.getItem('thunder-struck-settings')||'{}')}}catch{state={...defaults}}let forecast=null;
+const $=s=>document.querySelector(s),map=$('#windyMap'),mapWrap=$('.map-wrap'),toast=$('#toast');const save=()=>localStorage.setItem('thunder-struck-settings',JSON.stringify(state));
+function windyUrl(){const v=views[state.view],p=new URLSearchParams({lat:state.lat,lon:state.lon,detailLat:state.lat,detailLon:state.lon,width:1200,height:700,zoom:6,level:'surface',overlay:v.overlay,product:v.product,menu:'',message:'true',marker:'',calendar:'now',pressure:'',type:'map',location:'coordinates',detail:'',metricWind:'default',metricTemp:state.unit,radarRange:'-1'});return`https://embed.windy.com/embed2.html?${p}`}
+const celsius=k=>k-273.15;function displayTemp(k){if(!Number.isFinite(k))return'--°';let c=celsius(k),n=state.unit==='°F'?c*9/5+32:c;return`${Math.round(n)}°`}
+function symbol(cloud=0,precip=0){if(precip>.5)return'🌧️';if(cloud>75)return'☁️';if(cloud>30)return'🌤️';return'☀️'}
+function parseForecast(raw){const ts=raw.ts||[],temps=raw['temp-surface']||[],clouds=raw['clouds-surface']||raw['lclouds-surface']||[],precip=raw['past3hprecip-surface']||[];return ts.map((time,i)=>({time:new Date(time),temp:temps[i],cloud:clouds[i]||0,precip:precip[i]||0}))}
+function renderForecast(){const strip=$('#forecastStrip');strip.innerHTML='';if(!forecast?.length){$('#forecastNotice').classList.add('show');$('#forecastNotice').textContent='Add your Windy Point Forecast API key to the GitHub WINDY_API_KEY secret to enable live forecast cards.';$('#currentCondition').textContent='Windy maps available below';return}$('#forecastNotice').classList.remove('show');const now=forecast[0],today=forecast.filter(x=>x.time.toDateString()===now.time.toDateString()),high=Math.max(...today.map(x=>x.temp)),low=Math.min(...today.map(x=>x.temp));$('#currentTemp').textContent=displayTemp(now.temp);$('#currentCondition').textContent=now.precip>.5?'Rain expected':now.cloud>75?'Cloudy':now.cloud>30?'Partly Cloudy':'Clear';$('#highLow').innerHTML=`H:${displayTemp(high)} &nbsp; L:${displayTemp(low)}`;$('#daySummary').textContent=now.precip>.5?'Periods of rain are expected today. Keep an eye on the Rain & Clouds map below.':now.cloud>70?'Cloudy conditions are expected through much of the day.':'Generally clear conditions are expected today with periods of cloud.';
+ let items=[];if(state.range==='hourly')items=forecast.slice(0,12).map(x=>({label:x.time.toLocaleTimeString([],{hour:'numeric'}),...x}));else{const groups={};forecast.forEach(x=>(groups[x.time.toDateString()]??=[]).push(x));items=Object.values(groups).slice(0,state.range==='daily'?5:7).map(g=>({label:g[0].time.toLocaleDateString([],{weekday:'short'}),temp:Math.max(...g.map(x=>x.temp)),cloud:g.reduce((a,x)=>a+x.cloud,0)/g.length,precip:Math.max(...g.map(x=>x.precip))}))}items.forEach(x=>{const el=document.createElement('div');el.className='forecast-item';el.innerHTML=`<b>${x.label}</b><div class="weather-symbol">${symbol(x.cloud,x.precip)}</div><span>${displayTemp(x.temp)}</span>`;strip.append(el)})}
+async function loadForecast(){forecast=null;renderForecast();try{const result=await window.thunderStruck.getForecast(state.lat,state.lon);if(result.configured)forecast=parseForecast(result.data);renderForecast()}catch(e){$('#forecastNotice').classList.add('show');$('#forecastNotice').textContent=`Forecast unavailable: ${e.message}`}}
+function render(reload=true){document.body.classList.toggle('light',!state.dark);$('#placeName').textContent=state.name;const v=views[state.view];$('#viewTitle').textContent=v.title;$('#viewSubtitle').textContent=v.subtitle;const icon=$('#viewIcon');icon.textContent=v.icon;icon.className=`view-icon ${state.view==='radar'?'lightning':state.view}`;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===state.view));document.querySelectorAll('[data-range]').forEach(b=>b.classList.toggle('active',b.dataset.range===state.range));if(reload){mapWrap.classList.remove('loaded');map.src=windyUrl()}renderForecast()}
+function showToast(m){toast.textContent=m;toast.classList.add('show');clearTimeout(showToast.t);showToast.t=setTimeout(()=>toast.classList.remove('show'),2600)}
+map.addEventListener('load',()=>{mapWrap.classList.add('loaded');$('#updatedText').textContent=`Loaded ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`});document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;save();render()});document.querySelectorAll('[data-range]').forEach(b=>b.onclick=()=>{state.range=b.dataset.range;save();renderForecast();document.querySelectorAll('[data-range]').forEach(x=>x.classList.toggle('active',x===b))});
+const results=$('#searchResults');async function search(){const q=$('#searchInput').value.trim();if(q.length<2)return;results.innerHTML='<button>Searching…</button>';results.classList.add('open');try{const places=await window.thunderStruck.searchLocations(q);results.innerHTML='';places.forEach(p=>{const b=document.createElement('button');b.textContent=p.name;b.onclick=()=>{state.lat=p.lat;state.lon=p.lon;state.name=p.name.split(',')[0];save();results.classList.remove('open');$('#searchInput').value='';render();loadForecast()};results.append(b)});if(!places.length)results.innerHTML='<button>No locations found</button>'}catch{results.innerHTML='<button>Location search unavailable</button>'}}$('#searchButton').onclick=search;$('#searchInput').onkeydown=e=>{if(e.key==='Enter')search()};document.addEventListener('click',e=>{if(!e.target.closest('.search'))results.classList.remove('open')});
+$('#locateButton').onclick=()=>navigator.geolocation?.getCurrentPosition(p=>{state.lat=p.coords.latitude;state.lon=p.coords.longitude;state.name='My Location';save();render();loadForecast()},()=>showToast('Location permission was not granted'));
+const settings=$('#settingsDialog');$('#settingsButton').onclick=()=>{document.querySelectorAll('[data-unit]').forEach(b=>b.classList.toggle('active',b.dataset.unit===state.unit));$('#themeToggle').setAttribute('aria-pressed',String(state.dark));settings.showModal()};$('#themeToggle').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')==='true';e.currentTarget.setAttribute('aria-pressed',String(!on))};document.querySelectorAll('[data-unit]').forEach(b=>b.onclick=()=>document.querySelectorAll('[data-unit]').forEach(x=>x.classList.toggle('active',x===b)));$('#saveSettings').onclick=()=>{state.dark=$('#themeToggle').getAttribute('aria-pressed')==='true';state.unit=document.querySelector('[data-unit].active').dataset.unit;save();settings.close();render();loadForecast()};
+$('#checkUpdates').onclick=async()=>{const d=$('#updateDialog');$('#updateTitle').textContent='Checking for Updates…';$('#updateMessage').textContent='Contacting GitHub releases.';$('#updateActions').innerHTML='';d.showModal();try{const u=await window.thunderStruck.checkForUpdates();if(u.found){$('#updateTitle').textContent='Update Found';$('#updateMessage').textContent=`Thunder Struck ${u.version} is ready to download.`;$('#updateActions').innerHTML='<button id="downloadUpdate" type="button" class="primary">Download</button><button value="cancel" class="secondary">Close</button>';$('#downloadUpdate').onclick=async()=>{await window.thunderStruck.downloadUpdate(u.url);d.close();showToast('Update download started')}}else{$('#updateTitle').textContent='No Updates Found';$('#updateMessage').textContent='You already have the latest version.';$('#updateActions').innerHTML='<button value="ok" class="primary">OK</button>'}}catch(e){$('#updateTitle').textContent='Update Check Failed';$('#updateMessage').textContent='Make sure the GitHub repository is public and has a published Release.';$('#updateActions').innerHTML='<button value="ok" class="primary">OK</button>'}};
+render();loadForecast();
