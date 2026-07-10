@@ -1,0 +1,62 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-installer:
+    name: Build Thunder Struck Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Find application folder
+        shell: pwsh
+        run: |
+          $packageFile = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Filter "package.json" `
+            -File `
+            -Recurse |
+            Where-Object {
+              $_.FullName -notmatch "node_modules"
+            } |
+            Select-Object -First 1
+
+          if (-not $packageFile) {
+            Write-Host "::error::package.json was not found anywhere in the repository."
+            Write-Host "Extract Thunder-Struck-Source-v1.0.0.zip and upload its contents to the repository."
+            exit 1
+          }
+
+          $appDirectory = $packageFile.Directory.FullName
+
+          Write-Host "Application found at: $appDirectory"
+          "APP_DIRECTORY=$appDirectory" >> $env:GITHUB_ENV
+
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: ${{ env.APP_DIRECTORY }}
+        run: npm install
+
+      - name: Build Windows installer
+        shell: pwsh
+        working-directory: ${{ env.APP_DIRECTORY }}
+        run: npm run dist
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Thunder-Struck-Windows-Installer
+          path: ${{ env.APP_DIRECTORY }}/release/*.exe
+          if-no-files-found: error
