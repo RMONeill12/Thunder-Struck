@@ -2,7 +2,7 @@
 
 Thunder Struck by RMO Productions is a Windows weather-map app powered by Windy. It provides dedicated maps for temperature, radar and lightning, fog, and rain/clouds without requiring an app account.
 
-Version 1.1 adds a forecast dashboard, hourly/daily/weekly views, location search, light/dark appearance, and GitHub Release update checks.
+Version 1.2 adds no-key current/hourly/daily forecasts, a Fishing Lakes map, permission controls, Windows tray behavior, and nearby thunderstorm-risk notifications.
 
 ## Run locally
 
@@ -24,9 +24,13 @@ Included workflow filename: **build-windows-installer.yml**
 
 The repository may be public or private. GitHub Actions builds work in either. If you publish the app publicly, review Windy's current embedding and commercial-use terms for your intended distribution.
 
-## Live forecast setup
+## Forecast and fishing sources
 
-Windy's embeddable maps do not require a key, but the forecast cards use Windy's Point Forecast API. Add your key in GitHub under **Settings → Secrets and variables → Actions** as a repository secret named `WINDY_API_KEY`. Users of the installed app do not need to sign in.
+Forecast cards use Open-Meteo and require no API key. Weather maps remain powered by Windy. Fishing Lakes displays OpenStreetMap waters explicitly tagged for fishing within 200 km. Community mapping is incomplete, so the map does not guarantee every fish-bearing waterbody. Always consult the local official stocking guide and fishing regulations.
+
+## Background alerts
+
+When notifications are enabled, closing the window leaves Thunder Struck in the Windows tray. It checks nearby Open-Meteo thunderstorm forecast points every 15 minutes. These are forecast-risk notifications, not measured lightning-strike detections.
 
 ## Update checks
 
