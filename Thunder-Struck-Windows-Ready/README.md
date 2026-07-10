@@ -2,7 +2,7 @@
 
 Thunder Struck by RMO Productions is a Windows weather-map app powered by Windy. It provides dedicated maps for temperature, radar and lightning, fog, and rain/clouds without requiring an app account.
 
-Version 1.2 adds no-key current/hourly/daily forecasts, a Fishing Lakes map, permission controls, Windows tray behavior, and nearby thunderstorm-risk notifications.
+Version 1.2 added no-key current/hourly/daily forecasts, a Fishing Lakes map, permission controls, Windows tray behavior, and nearby thunderstorm-risk notifications. Version 1.3 adds a refreshed UI, live search suggestions, thumbtack lake markers with a distance-sorted lake list, and faster cached lake lookups.
 
 ## Run locally
 

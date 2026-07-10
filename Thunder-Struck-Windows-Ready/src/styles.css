@@ -128,39 +128,40 @@ button{font:inherit;color:inherit}
 .search-results button:hover{background:var(--glass-hover)}
 
 /* ---------- hero ---------- */
-.forecast-hero{text-align:center;padding:26px 0 18px}
-.weather-reading{position:relative;display:inline-block}
-.temp-stack{position:relative;display:inline-block;padding:14px 0 6px;min-width:230px}
-.temp-stack img{
-  position:absolute;left:50%;top:50%;
-  width:230px;height:230px;
-  transform:translate(-50%,-50%);
-  z-index:0;pointer-events:none;object-fit:contain;
-  filter:drop-shadow(0 26px 34px rgba(0,0,0,.32));
+.forecast-hero{position:relative;text-align:center;padding:20px 0 18px}
+.hero-glow{
+  position:absolute;left:50%;top:40%;width:560px;height:380px;
+  transform:translate(-50%,-50%);pointer-events:none;
+  background:radial-gradient(closest-side,rgba(130,180,245,.14),transparent 72%);
+  filter:blur(12px);
+}
+.weather-scene{height:148px;display:grid;place-items:center;margin-bottom:8px;position:relative}
+.weather-scene img{
+  height:100%;object-fit:contain;
+  filter:drop-shadow(0 18px 26px rgba(0,0,0,.3));
   animation:weather-float 5.5s ease-in-out infinite;
 }
-@keyframes weather-float{50%{transform:translate(-50%,calc(-50% - 8px))}}
+@keyframes weather-float{50%{transform:translateY(-6px)}}
+.weather-reading{position:relative}
 
 .eyebrow{
   color:var(--accent);font-size:11px;font-weight:750;
   letter-spacing:2.6px;margin:0 0 6px;
-  position:relative;z-index:1;
 }
 .forecast-hero h1{
   font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
   font-size:38px;margin:0;font-weight:450;letter-spacing:-.5px;
-  position:relative;z-index:1;
 }
 .current-temp{
   font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
-  font-size:110px;font-weight:200;letter-spacing:-7px;line-height:1.02;
-  position:relative;z-index:1;color:var(--text);
-  text-shadow:0 3px 20px rgba(3,8,16,.75),0 0 46px rgba(3,8,16,.5);
+  font-size:106px;font-weight:200;letter-spacing:-6px;line-height:1.04;
+  margin:2px 0;
+  background:linear-gradient(180deg,var(--text) 55%,rgba(157,176,200,.75));
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;
 }
-.light .current-temp{text-shadow:0 3px 20px rgba(255,255,255,.85),0 0 40px rgba(255,255,255,.6)}
-.condition{font-size:19px;color:var(--muted);font-weight:600;position:relative;z-index:1;text-shadow:0 2px 12px rgba(3,8,16,.6)}
-.light .condition{text-shadow:0 2px 12px rgba(255,255,255,.7)}
-.high-low{font-size:15px;margin-top:6px;color:var(--text);opacity:.92;position:relative;z-index:1}
+.condition{font-size:19px;color:var(--muted);font-weight:600}
+.high-low{font-size:15px;margin-top:6px;color:var(--text);opacity:.92}
 
 /* ---------- tab pills (shared) ---------- */
 .forecast-tabs,.map-tabs,.settings-tabs{
@@ -430,8 +431,8 @@ input:focus{border-color:var(--accent);background:rgba(0,0,0,.28)}
   .top-tools{grid-template-columns:1fr;gap:8px}
   .search{grid-column:1;order:2}
   .location-tools{grid-column:1;order:1;justify-self:end}
-  .forecast-hero{padding-top:14px}
-  .temp-stack img{width:160px;height:160px}
+  .forecast-hero{padding-top:12px}
+  .weather-scene{height:106px}
   .current-temp{font-size:72px;letter-spacing:-4px}
   .map-tabs button{font-size:0}
   .map-tabs button::first-letter{font-size:16px}

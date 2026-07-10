@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 app.setName('Thunder Struck');
-const APP_VERSION = '1.2.1';
+const APP_VERSION = app.getVersion(); // single source of truth: package.json "version"
 const GITHUB_REPO = 'RMOneill12/Thunder-Struck';
 let mainWindow, tray, quitting = false, alertTimer;
 
@@ -41,45 +41,48 @@ ipcMain.handle('get-forecast', async (_event, { lat, lon }) => {
   return {configured:true,data:await response.json(),source:'Open-Meteo'};
 });
 
+const lakeCache=new Map();
+const EXCLUDED_WATER=new Set(['river','stream','canal','ditch','drain','moat','wastewater','basin']);
 ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
-  const R=150000; // 150 km search radius
-  const q=`[out:json][timeout:30];(
-    nwr(around:${R},${lat},${lon})[natural=water][water~"^(lake|reservoir|pond|lagoon|oxbow)$"][name];
-    nwr(around:${R},${lat},${lon})[natural=water][name~"Lake|Lac|Reservoir|Pond",i];
-    nwr(around:${R},${lat},${lon})[landuse=reservoir][name];
-    nwr(around:${R},${lat},${lon})[leisure=fishing];
-    nwr(around:${R},${lat},${lon})["fishing"]["fishing"!="no"][name];
-  );out center 400;`;
-  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter','https://lz4.overpass-api.de/api/interpreter'];
+  const key=`${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const cached=lakeCache.get(key);
+  if(cached&&Date.now()-cached.time<60*60*1000)return cached.lakes;
+  const R=120000; // 120 km search radius
+  // Tag-only filters keep this query on Overpass indexes (fast); name-pattern
+  // matching was the slow part, so water-type filtering now happens below in JS.
+  const q=`[out:json][timeout:10];(nwr(around:${R},${lat},${lon})[natural=water][name];nwr(around:${R},${lat},${lon})[leisure=fishing];);out center 400;`;
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+  const fetchOverpass=async endpoint=>{
+    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(11000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+    if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
+    const json=await response.json();
+    if(!Array.isArray(json.elements)||!json.elements.length)throw new Error('empty');
+    return json.elements;
+  };
   let elements=[];
-  for(const endpoint of endpoints){
-    try{
-      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
-      if(response.ok&&response.headers.get('content-type')?.includes('json')){
-        const json=await response.json();
-        if(Array.isArray(json.elements)&&json.elements.length){elements=json.elements;break}
-      }
-    }catch{}
-  }
-  const fromOverpass=elements.map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''})).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));
-  if(fromOverpass.length)return fromOverpass;
-  // Fallback: several bounded Nominatim searches combined
-  const box=[lon-1.9,lat+1.35,lon+1.9,lat-1.35].join(',');
+  try{elements=await Promise.any(endpoints.map(fetchOverpass))}catch{}
+  const lakes=elements
+    .filter(e=>!EXCLUDED_WATER.has(e.tags?.water))
+    .map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''}))
+    .filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));
+  if(lakes.length){lakeCache.set(key,{time:Date.now(),lakes});return lakes}
+  // Fallback: two quick bounded Nominatim searches
+  const box=[lon-1.6,lat+1.1,lon+1.6,lat-1.1].join(',');
   const seen=new Set(),results=[];
-  for(const term of ['lake','reservoir','fishing lake','pond']){
+  for(const term of ['lake','reservoir']){
     try{
-      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
-      if(!response.ok)continue;
-      for(const x of await response.json()){
+      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{signal:AbortSignal.timeout(8000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+      if(response.ok)for(const x of await response.json()){
         const name=x.display_name.split(',')[0];
         if(seen.has(name.toLowerCase()))continue;
         seen.add(name.toLowerCase());
         results.push({id:`nominatim/${x.place_id}`,lat:Number(x.lat),lon:Number(x.lon),name,fishing:'unverified'});
       }
-      await new Promise(resolve=>setTimeout(resolve,1100)); // respect Nominatim rate limit
     }catch{}
+    if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
   }
   if(!results.length)throw new Error('Lake map sources are temporarily unavailable');
+  lakeCache.set(key,{time:Date.now(),lakes:results});
   return results;
 });
 
