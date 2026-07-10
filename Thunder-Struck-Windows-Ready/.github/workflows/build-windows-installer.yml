@@ -3,29 +3,57 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    tags:
+      - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  build-windows-installer:
     runs-on: windows-latest
     steps:
-      - name: Checkout source
+      - name: Download repository
         uses: actions/checkout@v4
+
+      - name: Find application folder
+        shell: pwsh
+        run: |
+          $packageFile = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter package.json -File -Recurse |
+            Where-Object { $_.FullName -notmatch "node_modules" } |
+            Select-Object -First 1
+          if (-not $packageFile) {
+            Write-Host "::error::package.json was not found."
+            exit 1
+          }
+          "APP_DIRECTORY=$($packageFile.Directory.FullName)" >> $env:GITHUB_ENV
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
+
       - name: Install dependencies
-        run: npm ci
-      - name: Build installer
+        working-directory: ${{ env.APP_DIRECTORY }}
+        run: npm install
+
+      - name: Build Windows installer
+        working-directory: ${{ env.APP_DIRECTORY }}
         run: npm run dist
-      - name: Upload installer
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: Thunder-Struck-Windows-Installer
-          path: release/*.exe
+          path: ${{ env.APP_DIRECTORY }}/release/*.exe
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        working-directory: ${{ env.APP_DIRECTORY }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem release/*.exe | Select-Object -First 1).FullName
+          gh release create "$env:GITHUB_REF_NAME" "$installer" --title "Thunder Struck $env:GITHUB_REF_NAME" --generate-notes
