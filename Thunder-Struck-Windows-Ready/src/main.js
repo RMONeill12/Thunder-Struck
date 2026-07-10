@@ -42,10 +42,45 @@ ipcMain.handle('get-forecast', async (_event, { lat, lon }) => {
 });
 
 ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
-  const q=`[out:json][timeout:20];(nwr(around:120000,${lat},${lon})[natural=water][water=lake][name];nwr(around:120000,${lat},${lon})[natural=water][name~"Lake|Reservoir|Pond",i];nwr(around:120000,${lat},${lon})[leisure=fishing];);out center tags 350;`;
-  let json;for(const endpoint of ['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter']){try{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`data=${encodeURIComponent(q)}`});if(response.ok&&response.headers.get('content-type')?.includes('json')){json=await response.json();break}}catch{}}
-  if(json)return json.elements.map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing water',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''})).filter(x=>Number.isFinite(x.lat));
-  const box=[lon-1.7,lat+1.2,lon+1.7,lat-1.2].join(',');const fallback=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=50&bounded=1&viewbox=${box}&q=lake`,{headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});if(!fallback.ok)throw new Error('Lake map sources are temporarily unavailable');return(await fallback.json()).map(x=>({id:`nominatim/${x.place_id}`,lat:Number(x.lat),lon:Number(x.lon),name:x.display_name.split(',')[0],fishing:'unverified'}));
+  const R=150000; // 150 km search radius
+  const q=`[out:json][timeout:30];(
+    nwr(around:${R},${lat},${lon})[natural=water][water~"^(lake|reservoir|pond|lagoon|oxbow)$"][name];
+    nwr(around:${R},${lat},${lon})[natural=water][name~"Lake|Lac|Reservoir|Pond",i];
+    nwr(around:${R},${lat},${lon})[landuse=reservoir][name];
+    nwr(around:${R},${lat},${lon})[leisure=fishing];
+    nwr(around:${R},${lat},${lon})["fishing"]["fishing"!="no"][name];
+  );out center 400;`;
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter','https://lz4.overpass-api.de/api/interpreter'];
+  let elements=[];
+  for(const endpoint of endpoints){
+    try{
+      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+      if(response.ok&&response.headers.get('content-type')?.includes('json')){
+        const json=await response.json();
+        if(Array.isArray(json.elements)&&json.elements.length){elements=json.elements;break}
+      }
+    }catch{}
+  }
+  const fromOverpass=elements.map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''})).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));
+  if(fromOverpass.length)return fromOverpass;
+  // Fallback: several bounded Nominatim searches combined
+  const box=[lon-1.9,lat+1.35,lon+1.9,lat-1.35].join(',');
+  const seen=new Set(),results=[];
+  for(const term of ['lake','reservoir','fishing lake','pond']){
+    try{
+      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+      if(!response.ok)continue;
+      for(const x of await response.json()){
+        const name=x.display_name.split(',')[0];
+        if(seen.has(name.toLowerCase()))continue;
+        seen.add(name.toLowerCase());
+        results.push({id:`nominatim/${x.place_id}`,lat:Number(x.lat),lon:Number(x.lon),name,fishing:'unverified'});
+      }
+      await new Promise(resolve=>setTimeout(resolve,1100)); // respect Nominatim rate limit
+    }catch{}
+  }
+  if(!results.length)throw new Error('Lake map sources are temporarily unavailable');
+  return results;
 });
 
 ipcMain.handle('get-permissions',()=>readPrefs());

@@ -86,8 +86,8 @@ body.light{
 main{width:min(1320px,calc(100% - 48px));margin:auto;padding:26px 0 40px}
 
 /* ---------- top tools ---------- */
-.top-tools{display:flex;justify-content:flex-end;gap:10px;align-items:start;position:relative;z-index:12}
-.search{width:min(420px,50vw);position:relative}
+.top-tools{display:grid;grid-template-columns:1fr minmax(280px,460px) 1fr;align-items:start;gap:10px;position:relative;z-index:12}
+.search{grid-column:2;width:100%;position:relative}
 .search input{height:44px;margin:0;padding:0 50px 0 16px;font-size:13.5px}
 .search>button{
   position:absolute;right:6px;top:6px;width:32px;height:32px;
@@ -95,7 +95,7 @@ main{width:min(1320px,calc(100% - 48px));margin:auto;padding:26px 0 40px}
   font-size:21px;cursor:pointer;transition:.18s;
 }
 .search>button:hover{background:var(--glass-hover);color:var(--text)}
-.location-tools{display:flex;gap:9px}
+.location-tools{grid-column:3;justify-self:end;display:flex;gap:9px}
 
 button{font:inherit;color:inherit}
 
@@ -128,39 +128,39 @@ button{font:inherit;color:inherit}
 .search-results button:hover{background:var(--glass-hover)}
 
 /* ---------- hero ---------- */
-.forecast-hero{
-  display:grid;
-  grid-template-columns:minmax(230px,360px) minmax(260px,390px);
-  justify-content:center;align-items:center;gap:22px;
-  padding:28px 0 20px;text-align:left;
-}
-.weather-reading{text-align:center}
-.weather-scene{height:230px;display:grid;place-items:center}
-.weather-scene img{
-  width:100%;height:100%;object-fit:contain;
+.forecast-hero{text-align:center;padding:26px 0 18px}
+.weather-reading{position:relative;display:inline-block}
+.temp-stack{position:relative;display:inline-block;padding:14px 0 6px;min-width:230px}
+.temp-stack img{
+  position:absolute;left:50%;top:50%;
+  width:230px;height:230px;
+  transform:translate(-50%,-50%);
+  z-index:0;pointer-events:none;object-fit:contain;
   filter:drop-shadow(0 26px 34px rgba(0,0,0,.32));
   animation:weather-float 5.5s ease-in-out infinite;
 }
-@keyframes weather-float{50%{transform:translateY(-8px)}}
+@keyframes weather-float{50%{transform:translate(-50%,calc(-50% - 8px))}}
 
 .eyebrow{
   color:var(--accent);font-size:11px;font-weight:750;
   letter-spacing:2.6px;margin:0 0 6px;
+  position:relative;z-index:1;
 }
 .forecast-hero h1{
   font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
   font-size:38px;margin:0;font-weight:450;letter-spacing:-.5px;
+  position:relative;z-index:1;
 }
 .current-temp{
   font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
-  font-size:110px;font-weight:180;letter-spacing:-7px;line-height:1.02;
-  margin:4px 0 2px;
-  background:linear-gradient(180deg,var(--text) 55%,rgba(157,176,200,.75));
-  -webkit-background-clip:text;background-clip:text;
-  -webkit-text-fill-color:transparent;
+  font-size:110px;font-weight:200;letter-spacing:-7px;line-height:1.02;
+  position:relative;z-index:1;color:var(--text);
+  text-shadow:0 3px 20px rgba(3,8,16,.75),0 0 46px rgba(3,8,16,.5);
 }
-.condition{font-size:19px;color:var(--muted);font-weight:600}
-.high-low{font-size:15px;margin-top:6px;color:var(--text);opacity:.92}
+.light .current-temp{text-shadow:0 3px 20px rgba(255,255,255,.85),0 0 40px rgba(255,255,255,.6)}
+.condition{font-size:19px;color:var(--muted);font-weight:600;position:relative;z-index:1;text-shadow:0 2px 12px rgba(3,8,16,.6)}
+.light .condition{text-shadow:0 2px 12px rgba(255,255,255,.7)}
+.high-low{font-size:15px;margin-top:6px;color:var(--text);opacity:.92;position:relative;z-index:1}
 
 /* ---------- tab pills (shared) ---------- */
 .forecast-tabs,.map-tabs,.settings-tabs{
@@ -302,18 +302,21 @@ iframe{width:100%;height:100%;border:0;display:block;opacity:0;transition:opacit
 .lake-item small{color:var(--muted);font-size:10.5px}
 .lake-empty{padding:18px 14px;color:var(--muted);font-size:11.5px;line-height:1.5;text-align:center}
 
-/* custom map pins */
+/* custom map thumbtacks */
 .lake-pin-wrap{background:none;border:none}
-.lake-pin{width:30px;height:40px;transform-origin:50% 95%;transition:transform .18s}
-.lake-pin svg{width:100%;height:100%;overflow:visible}
-.lake-pin path{
-  fill:#22b573;stroke:#0d3a26;stroke-width:1;
-  filter:drop-shadow(0 5px 7px rgba(0,0,0,.45));
+.lake-pin{
+  width:36px;height:36px;transform-origin:50% 95%;
+  transition:transform .18s;
+  filter:drop-shadow(0 5px 6px rgba(0,0,0,.45));
 }
-.lake-pin circle{fill:#eafff3}
+.lake-pin svg{width:100%;height:100%;overflow:visible}
+.lake-pin .pin-needle{stroke:#c8d3e0;stroke-width:2.4;stroke-linecap:round}
+.lake-pin .pin-collar{fill:#b8352f}
+.lake-pin .pin-head{fill:#ef4444;stroke:#7f1d1d;stroke-width:1}
+.lake-pin .pin-shine{fill:#fff;opacity:.65}
 .lake-pin:hover,.lake-pin.active{transform:scale(1.18)}
-.lake-pin.active path{fill:#ffd84e;stroke:#6b520a}
-.lake-pin.active circle{fill:#fffbe8}
+.lake-pin.active .pin-head{fill:#ffd84e;stroke:#6b520a}
+.lake-pin.active .pin-collar{fill:#d3a119}
 
 /* themed leaflet popups */
 .leaflet-popup-content-wrapper{
@@ -424,11 +427,11 @@ input:focus{border-color:var(--accent);background:rgba(0,0,0,.28)}
 /* ---------- small screens ---------- */
 @media(max-width:720px){
   main{width:calc(100% - 22px);padding-top:18px}
-  .top-tools{flex-wrap:wrap}
-  .search{width:100%;order:2}
-  .location-tools{width:100%;justify-content:flex-end}
-  .forecast-hero{padding-top:16px;grid-template-columns:130px 1fr;gap:6px}
-  .weather-scene{height:150px}
+  .top-tools{grid-template-columns:1fr;gap:8px}
+  .search{grid-column:1;order:2}
+  .location-tools{grid-column:1;order:1;justify-self:end}
+  .forecast-hero{padding-top:14px}
+  .temp-stack img{width:160px;height:160px}
   .current-temp{font-size:72px;letter-spacing:-4px}
   .map-tabs button{font-size:0}
   .map-tabs button::first-letter{font-size:16px}
