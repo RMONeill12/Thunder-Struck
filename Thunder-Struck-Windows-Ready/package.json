@@ -1,0 +1,37 @@
+{
+  "name": "thunder-struck",
+  "version": "1.0.0",
+  "description": "A beautiful Windy-powered weather map app for Windows.",
+  "author": "RMO Productions",
+  "license": "UNLICENSED",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "39.2.7",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "com.rmoproductions.thunderstruck",
+    "productName": "Thunder Struck",
+    "copyright": "Copyright © 2026 RMO Productions",
+    "directories": { "output": "release" },
+    "files": ["src/**/*", "assets/**/*", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico",
+      "artifactName": "Thunder-Struck-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Thunder Struck",
+      "uninstallDisplayName": "Thunder Struck"
+    }
+  }
+}

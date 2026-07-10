@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-src https://embed.windy.com;">
+  <title>Thunder Struck</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand"><img src="../assets/bolt.svg" alt=""><span>Thunder Struck</span><small>RMO PRODUCTIONS</small></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">LIVE WEATHER MAP</p>
+        <h1 id="placeName">Regina</h1>
+        <p id="coordinates">50.4452° N · 104.6189° W</p>
+      </div>
+      <div class="location-tools">
+        <button id="locateButton" class="glass-button" title="Use my current location">◎ <span>My location</span></button>
+        <button id="settingsButton" class="glass-button" title="Map settings">⚙</button>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Weather maps">
+      <button class="tab active" data-view="temp"><span class="tab-icon temp">☀</span><span>Temperature</span></button>
+      <button class="tab" data-view="radar"><span class="tab-icon lightning">ϟ</span><span>Lightning</span></button>
+      <button class="tab" data-view="fog"><span class="tab-icon fog">≋</span><span>Fog</span></button>
+      <button class="tab" data-view="rain"><span class="tab-icon rain">☂</span><span>Rain & Clouds</span></button>
+    </nav>
+
+    <section class="map-card">
+      <div class="map-heading">
+        <div><span id="viewIcon" class="view-icon temp">☀</span><div><h2 id="viewTitle">Temperature</h2><p id="viewSubtitle">Surface temperature forecast</p></div></div>
+        <span class="live-pill"><i></i> WINDY LIVE</span>
+      </div>
+      <div class="map-wrap">
+        <div id="loading" class="loading"><img src="../assets/bolt.svg" alt=""><span>Loading Windy map…</span></div>
+        <iframe id="windyMap" title="Windy weather map" allow="geolocation" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      </div>
+      <footer class="map-footer"><span>Weather visualization by <strong>Windy.com</strong></span><span id="updatedText">Live map</span></footer>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">MAP PREFERENCES</p><h2>Settings</h2></div><button class="close" value="cancel" aria-label="Close">×</button></div>
+      <label>Map location</label>
+      <p class="hint">Enter coordinates and an optional name. Weather data always comes from Windy.</p>
+      <div class="coordinate-row"><input id="latInput" type="number" min="-85" max="85" step="any" placeholder="Latitude"><input id="lonInput" type="number" min="-180" max="180" step="any" placeholder="Longitude"></div>
+      <input id="nameInput" type="text" maxlength="40" placeholder="Location name (optional)">
+      <label>Temperature</label>
+      <div class="segmented"><button type="button" data-unit="°C">Celsius</button><button type="button" data-unit="°F">Fahrenheit</button></div>
+      <div id="settingsError" class="error" role="alert"></div>
+      <button id="saveSettings" type="button" class="primary">Apply changes</button>
+      <p class="privacy">No account. No profile. Your preferences stay on this device.</p>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
