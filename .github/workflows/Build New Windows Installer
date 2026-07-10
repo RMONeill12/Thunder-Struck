@@ -1,4 +1,4 @@
-name: Build Windows Installer
+name: build-new-windows-installer.yml
 
 on:
   workflow_dispatch:
