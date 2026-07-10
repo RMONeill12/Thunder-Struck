@@ -2,16 +2,13 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
 
 jobs:
   build-windows-installer:
-    name: Build Thunder Struck
+    name: Build Thunder Struck Windows Installer
     runs-on: windows-latest
 
     steps:
@@ -21,11 +18,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Windows installer
         run: npm run dist
