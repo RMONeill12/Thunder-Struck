@@ -56,14 +56,22 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   // spatial index directly; the renderer trims results to 200 km client-side.
   const dLat=1.85;
   const dLon=Math.min(4,200/(111.32*Math.cos(lat*Math.PI/180)));
-  const bbox=`${(lat-dLat).toFixed(4)},${(lon-dLon).toFixed(4)},${(lat+dLat).toFixed(4)},${(lon+dLon).toFixed(4)}`;
-  // Two-tier query: significant waters (wikidata / typed lakes / reservoirs /
-  // fishing spots) get their own limit so ponds can't crowd them out, then
-  // remaining named waters fill in.
-  const q=`[out:json][timeout:25];(nwr(${bbox})[natural=water][name][wikidata];nwr(${bbox})["water"~"^(lake|reservoir)$"][name];nwr(${bbox})[landuse=reservoir][name];nwr(${bbox})[leisure=fishing];)->.major;.major out center 800;(nwr(${bbox})[natural=water][name]; - .major;)->.minor;.minor out center 400;`;
-  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-  const fetchOverpass=async endpoint=>{
-    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(26000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+  const bigBox=`${(lat-dLat).toFixed(4)},${(lon-dLon).toFixed(4)},${(lat+dLat).toFixed(4)},${(lon+dLon).toFixed(4)}`;
+  // The generic [natural=water][name] scan is the expensive part (hundreds of
+  // thousands of named sloughs in prairie regions), so it only runs over a
+  // ~60 km core box. Significant waters (wikidata-tagged, typed lakes and
+  // reservoirs, fishing spots) are cheap to scan and keep the full 200 km reach.
+  const sLat=0.55,sLon=Math.min(1.2,60/(111.32*Math.cos(lat*Math.PI/180)));
+  const smallBox=`${(lat-sLat).toFixed(4)},${(lon-sLon).toFixed(4)},${(lat+sLat).toFixed(4)},${(lon+sLon).toFixed(4)}`;
+  const q=`[out:json][timeout:15];(nwr(${bigBox})[natural=water][name][wikidata];nwr(${bigBox})["water"~"^(lake|reservoir)$"][name];nwr(${bigBox})[landuse=reservoir][name];nwr(${bigBox})[leisure=fishing];)->.major;.major out center 800;(nwr(${smallBox})[natural=water][name]; - .major;)->.minor;.minor out center 400;`;
+  // Stagger the mirrors instead of hammering all three at once — repeated
+  // simultaneous requests during panning were tripping rate limits, which is
+  // why every mirror started failing together.
+  const endpoints=['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+  const delay=ms=>new Promise(r=>setTimeout(r,ms));
+  const fetchOverpass=async(endpoint,wait)=>{
+    await delay(wait);
+    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(17000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
     if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
     const json=await response.json();
     if(json.remark&&/timed?[ _-]?out|error/i.test(json.remark))throw new Error('overpass timeout');
@@ -72,7 +80,7 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   };
   let overpassOk=false;
   let elements=[];
-  try{elements=await Promise.any(endpoints.map(fetchOverpass));overpassOk=true}catch{}
+  try{elements=await Promise.any(endpoints.map((e,i)=>fetchOverpass(e,i*4000)));overpassOk=true}catch{}
   const seenIds=new Set();
   const lakes=elements
     .filter(e=>{const id=`${e.type}/${e.id}`;if(seenIds.has(id))return false;seenIds.add(id);return!EXCLUDED_WATER.has(e.tags?.water)})
