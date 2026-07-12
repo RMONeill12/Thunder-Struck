@@ -43,24 +43,30 @@ ipcMain.handle('get-forecast', async (_event, { lat, lon }) => {
 
 const lakeCache=new Map();
 const EXCLUDED_WATER=new Set(['river','stream','canal','ditch','drain','moat','wastewater','basin']);
-const clamp=(v,min,max)=>Math.min(max,Math.max(min,v));
-ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
-  // Keep the queried area reasonable so Overpass stays fast even if the
-  // renderer sends an oversized viewport.
-  const cLat=(south+north)/2,cLon=(west+east)/2;
-  const maxLat=1.6,maxLon=2.4;
-  south=clamp(south,cLat-maxLat,cLat);north=clamp(north,cLat,cLat+maxLat);
-  west=clamp(west,cLon-maxLon,cLon);east=clamp(east,cLon,cLon+maxLon);
-  const key=[south,west,north,east].map(v=>v.toFixed(2)).join(',');
+const SEARCH_RADIUS_M=200000; // 200 km around the map center
+ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
+  // Cache by ~5 km grid so small pans reuse results
+  const key=`${(Math.round(lat*20)/20).toFixed(2)},${(Math.round(lon*20)/20).toFixed(2)}`;
   const cached=lakeCache.get(key);
   if(cached&&Date.now()-cached.time<60*60*1000)return cached.lakes;
-  const bbox=`${south},${west},${north},${east}`;
-  // Tag-only filters keep this query on Overpass indexes (fast); water-type
-  // filtering happens below in JS.
-  const q=`[out:json][timeout:8];(nwr(${bbox})[natural=water][name];nwr(${bbox})[landuse=reservoir][name];nwr(${bbox})[water][name];nwr(${bbox})[leisure=fishing];);out center 400;`;
+  const around=`(around:${SEARCH_RADIUS_M},${lat},${lon})`;
+  // Two-tier query. Prairie/shield regions contain thousands of named sloughs
+  // and Overpass truncates in arbitrary database order, which was dropping
+  // major lakes (e.g. Lenore Lake). Tier 1 grabs significant waters first
+  // (wikidata-tagged, explicitly typed lakes/reservoirs, fishing spots) with
+  // its own generous limit, so small ponds can never crowd them out. Tier 2
+  // then fills in remaining named waters.
+  const q=`[out:json][timeout:15];
+(nwr${around}[natural=water][name][wikidata];
+nwr${around}["water"~"^(lake|reservoir|pond)$"][name];
+nwr${around}[landuse=reservoir][name];
+nwr${around}[leisure=fishing];)->.major;
+.major out center 800;
+(nwr${around}[natural=water][name]; - .major;)->.minor;
+.minor out center 300;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
   const fetchOverpass=async endpoint=>{
-    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(9000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(16000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
     if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
     const json=await response.json();
     if(!Array.isArray(json.elements)||!json.elements.length)throw new Error('empty');
@@ -68,13 +74,14 @@ ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
   };
   let elements=[];
   try{elements=await Promise.any(endpoints.map(fetchOverpass))}catch{}
+  const seenIds=new Set();
   const lakes=elements
-    .filter(e=>!EXCLUDED_WATER.has(e.tags?.water))
-    .map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''}))
+    .filter(e=>{const id=`${e.type}/${e.id}`;if(seenIds.has(id))return false;seenIds.add(id);return!EXCLUDED_WATER.has(e.tags?.water)})
+    .map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',major:Boolean(e.tags?.wikidata||['lake','reservoir'].includes(e.tags?.water)||e.tags?.landuse==='reservoir'),website:e.tags?.website||''}))
     .filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));
   if(lakes.length){lakeCache.set(key,{time:Date.now(),lakes});return lakes}
-  // Fallback: two quick bounded Nominatim searches over the same viewport
-  const box=[west,north,east,south].join(',');
+  // Fallback: two quick bounded Nominatim searches around the same center
+  const box=[lon-2.7,lat+1.8,lon+2.7,lat-1.8].join(',');
   const seen=new Set(),results=[];
   for(const term of ['lake','reservoir']){
     try{
@@ -83,7 +90,7 @@ ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
         const name=x.display_name.split(',')[0];
         if(seen.has(name.toLowerCase()))continue;
         seen.add(name.toLowerCase());
-        results.push({id:`nominatim/${x.place_id}`,lat:Number(x.lat),lon:Number(x.lon),name,fishing:'unverified'});
+        results.push({id:`nominatim/${x.place_id}`,lat:Number(x.lat),lon:Number(x.lon),name,fishing:'unverified',major:false});
       }
     }catch{}
     if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
@@ -138,11 +145,19 @@ function scheduleAlerts(){clearInterval(alertTimer);if(readPrefs().notifications
 
 ipcMain.handle('check-for-updates', async () => {
   const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': `Thunder-Struck/${APP_VERSION}` } });
-  if (response.status === 404) return { found: false, reason: 'No published release was found.' };
+  if (response.status === 404) return { found: false, current: APP_VERSION, reason: 'No published Release exists on GitHub yet. Push a version tag (e.g. v1.4.2) to trigger the release workflow.' };
   if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
   const release = await response.json();
   const asset = release.assets.find(a => /setup.*\.exe$/i.test(a.name)) || release.assets.find(a => /\.exe$/i.test(a.name));
-  return { found: newerVersion(release.tag_name, APP_VERSION), version: release.tag_name, url: asset?.browser_download_url || release.html_url };
+  const found = newerVersion(release.tag_name, APP_VERSION);
+  return {
+    found,
+    current: APP_VERSION,
+    version: release.tag_name,
+    url: asset?.browser_download_url || release.html_url,
+    hasInstaller: Boolean(asset),
+    reason: found ? '' : `You are running v${APP_VERSION} and the latest published Release is ${release.tag_name}.`
+  };
 });
 
 ipcMain.handle('download-update', async (_event, url) => {

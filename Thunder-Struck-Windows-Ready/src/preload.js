@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('thunderStruck', {
   platform: process.platform,
-  version: '1.4.1',
+  version: '1.4.2',
   searchLocations: query => ipcRenderer.invoke('search-locations', query),
   getForecast: (lat, lon) => ipcRenderer.invoke('get-forecast', { lat, lon }),
   getFishingLakes: bounds => ipcRenderer.invoke('get-fishing-lakes', bounds),
