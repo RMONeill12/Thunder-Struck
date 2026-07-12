@@ -43,14 +43,21 @@ ipcMain.handle('get-forecast', async (_event, { lat, lon }) => {
 
 const lakeCache=new Map();
 const EXCLUDED_WATER=new Set(['river','stream','canal','ditch','drain','moat','wastewater','basin']);
-ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
-  const key=`${lat.toFixed(2)},${lon.toFixed(2)}`;
+const clamp=(v,min,max)=>Math.min(max,Math.max(min,v));
+ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
+  // Keep the queried area reasonable so Overpass stays fast even if the
+  // renderer sends an oversized viewport.
+  const cLat=(south+north)/2,cLon=(west+east)/2;
+  const maxLat=1.6,maxLon=2.4;
+  south=clamp(south,cLat-maxLat,cLat);north=clamp(north,cLat,cLat+maxLat);
+  west=clamp(west,cLon-maxLon,cLon);east=clamp(east,cLon,cLon+maxLon);
+  const key=[south,west,north,east].map(v=>v.toFixed(2)).join(',');
   const cached=lakeCache.get(key);
   if(cached&&Date.now()-cached.time<60*60*1000)return cached.lakes;
-  const R=120000; // 120 km search radius
-  // Tag-only filters keep this query on Overpass indexes (fast); name-pattern
-  // matching was the slow part, so water-type filtering now happens below in JS.
-  const q=`[out:json][timeout:10];(nwr(around:${R},${lat},${lon})[natural=water][name];nwr(around:${R},${lat},${lon})[leisure=fishing];);out center 400;`;
+  const bbox=`${south},${west},${north},${east}`;
+  // Tag-only filters keep this query on Overpass indexes (fast); water-type
+  // filtering happens below in JS.
+  const q=`[out:json][timeout:10];(nwr(${bbox})[natural=water][name];nwr(${bbox})[leisure=fishing];);out center 400;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
   const fetchOverpass=async endpoint=>{
     const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(11000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
@@ -66,8 +73,8 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
     .map(e=>({id:`${e.type}/${e.id}`,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,name:e.tags?.name||'Fishing spot',fishing:e.tags?.fishing||e.tags?.sport||'unverified',website:e.tags?.website||''}))
     .filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));
   if(lakes.length){lakeCache.set(key,{time:Date.now(),lakes});return lakes}
-  // Fallback: two quick bounded Nominatim searches
-  const box=[lon-1.6,lat+1.1,lon+1.6,lat-1.1].join(',');
+  // Fallback: two quick bounded Nominatim searches over the same viewport
+  const box=[west,north,east,south].join(',');
   const seen=new Set(),results=[];
   for(const term of ['lake','reservoir']){
     try{
@@ -81,9 +88,28 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
     }catch{}
     if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
   }
-  if(!results.length)throw new Error('Lake map sources are temporarily unavailable');
   lakeCache.set(key,{time:Date.now(),lakes:results});
   return results;
+});
+
+// Fish species observed near a lake, via the free iNaturalist API
+// (taxon 47178 = ray-finned fishes). Cached per lake for 24 hours.
+const fishCache=new Map();
+ipcMain.handle('get-lake-fish',async(_event,{lat,lon})=>{
+  const key=`${lat.toFixed(3)},${lon.toFixed(3)}`;
+  const cached=fishCache.get(key);
+  if(cached&&Date.now()-cached.time<24*60*60*1000)return cached.fish;
+  const params=new URLSearchParams({taxon_id:'47178',lat,lng:lon,radius:'8',quality_grade:'research',per_page:'14',locale:'en'});
+  const response=await fetch(`https://api.inaturalist.org/v1/observations/species_counts?${params}`,{signal:AbortSignal.timeout(10000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+  if(!response.ok)throw new Error('Fish species lookup is unavailable');
+  const json=await response.json();
+  const fish=(json.results||[]).map(r=>{
+    const t=r.taxon||{};
+    const common=t.preferred_common_name?t.preferred_common_name.replace(/\b\w/g,c=>c.toUpperCase()):'';
+    return{name:common||t.name||'Unknown fish',sci:common?t.name||'':'',photo:t.default_photo?.square_url||'',count:r.count||0};
+  }).filter(f=>f.name);
+  fishCache.set(key,{time:Date.now(),fish});
+  return fish;
 });
 
 ipcMain.handle('get-permissions',()=>readPrefs());
@@ -92,7 +118,23 @@ ipcMain.handle('set-alert-location',(_e,value)=>{const p={...readPrefs(),alertLo
 ipcMain.handle('get-approx-location',async()=>{const response=await fetch('https://ipwho.is/');if(!response.ok)throw new Error('Approximate location is unavailable');const j=await response.json();if(!j.success)throw new Error('Approximate location is unavailable');return{lat:j.latitude,lon:j.longitude,name:j.city||'My Location',approximate:true}});
 
 async function checkLightningRisk(){const p=readPrefs();if(!p.notifications||!p.alertLocation)return;const {lat,lon}=p.alertLocation;const points=[[lat,lon,0],[lat+.09,lon,10],[lat-.09,lon,10],[lat,lon+.13,10],[lat,lon-.13,10],[lat+.225,lon,25],[lat-.225,lon,25],[lat,lon+.32,25],[lat,lon-.32,25],[lat+.45,lon,50],[lat-.45,lon,50],[lat,lon+.64,50],[lat,lon-.64,50]];let nearest=null;for(const [a,o,d]of points){try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${a}&longitude=${o}&current=weather_code&forecast_days=1`);const j=await r.json();if([95,96,99].includes(j.current?.weather_code))nearest=nearest===null?d:Math.min(nearest,d)}catch{}}if(nearest!==null){const last=p.lastAlert||0;if(Date.now()-last>60*60*1000){p.lastAlert=Date.now();writePrefs(p);const n=new Notification({title:'Thunder Struck',body:`Lightning risk detected approximately ${nearest} km away from you.`,icon:path.join(__dirname,'..','assets','icon.png'),closeButtonText:'Close'});n.on('click',()=>{mainWindow?.show();mainWindow?.focus()});n.show()}}}
-function scheduleAlerts(){clearInterval(alertTimer);if(readPrefs().notifications){checkLightningRisk();alertTimer=setInterval(checkLightningRisk,15*60*1000)}}
+// Heat warning: notifies when today's forecast reaches Environment Canada-style
+// heat criteria (max temp >= 32°C, or humidex/apparent temp >= 38°C).
+// Re-alerts at most once every 12 hours.
+async function checkHeatRisk(){const p=readPrefs();if(!p.notifications||!p.alertLocation)return;const {lat,lon}=p.alertLocation;try{
+  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,apparent_temperature_max&forecast_days=1&timezone=auto`,{signal:AbortSignal.timeout(10000)});
+  if(!r.ok)return;const j=await r.json();
+  const tMax=j.daily?.temperature_2m_max?.[0],aMax=j.daily?.apparent_temperature_max?.[0];
+  if(!(tMax>=32||aMax>=38))return;
+  const last=p.lastHeatAlert||0;
+  if(Date.now()-last<12*60*60*1000)return;
+  p.lastHeatAlert=Date.now();writePrefs(p);
+  const feels=Number.isFinite(aMax)&&aMax>tMax?` (feels like ${Math.round(aMax)}°C)`:'';
+  const n=new Notification({title:'Thunder Struck — Heat Warning',body:`Extreme heat expected today: high near ${Math.round(tMax)}°C${feels}. Stay hydrated and limit time outdoors.`,icon:path.join(__dirname,'..','assets','icon.png'),closeButtonText:'Close'});
+  n.on('click',()=>{mainWindow?.show();mainWindow?.focus()});n.show();
+}catch{}}
+function runAlertChecks(){checkLightningRisk();checkHeatRisk()}
+function scheduleAlerts(){clearInterval(alertTimer);if(readPrefs().notifications){runAlertChecks();alertTimer=setInterval(runAlertChecks,15*60*1000)}}
 
 ipcMain.handle('check-for-updates', async () => {
   const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': `Thunder-Struck/${APP_VERSION}` } });
