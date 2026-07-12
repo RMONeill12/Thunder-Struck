@@ -92,8 +92,10 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   const seen=new Set(),results=[];
   for(const term of ['lake','reservoir']){
     try{
-      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{signal:AbortSignal.timeout(6000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&layer=natural&viewbox=${box}&q=${encodeURIComponent(term)}`,{signal:AbortSignal.timeout(6000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
       if(response.ok)for(const x of await response.json()){
+        // Only accept genuine water features — never roads like "Reservoir Drive"
+        if(x.category!=='natural'&&!/water|lake|reservoir|bay|pond/i.test(x.type||''))continue;
         const name=x.display_name.split(',')[0];
         if(seen.has(name.toLowerCase()))continue;
         seen.add(name.toLowerCase());
@@ -102,9 +104,31 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
     }catch{}
     if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
   }
-  if(results.length){lakeCache.set(key,{time:Date.now(),lakes:results});return results}
+  // Fallback results are a degraded stopgap — cache briefly (5 min) so real
+  // Overpass data replaces them quickly once the servers recover. Caching
+  // these for an hour was pinning junk results on screen.
+  if(results.length){lakeCache.set(key,{time:Date.now()-55*60*1000,lakes:results});return results}
   if(overpassOk)return []; // genuinely no mapped waters here
   throw new Error('Lake map servers are busy — try again in a moment');
+});
+
+// Type-ahead lake search for the fishing-map search bar (Nominatim, natural
+// features only, biased toward the current map view). Debounced client-side.
+ipcMain.handle('search-lakes',async(_event,{query,lat,lon})=>{
+  const viewbox=[lon-3,lat+2,lon+3,lat-2].join(',');
+  const params=new URLSearchParams({format:'jsonv2',q:query,limit:'6',layer:'natural',viewbox,dedupe:'1'});
+  const response=await fetch(`https://nominatim.openstreetmap.org/search?${params}`,{signal:AbortSignal.timeout(7000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+  if(!response.ok)return[];
+  const seen=new Set(),out=[];
+  for(const x of await response.json()){
+    if(x.category!=='natural'&&!/water|lake|reservoir|bay|pond/i.test(x.type||''))continue;
+    const parts=x.display_name.split(',').map(p=>p.trim());
+    const name=parts[0];
+    if(seen.has(name.toLowerCase()+x.lat))continue;
+    seen.add(name.toLowerCase()+x.lat);
+    out.push({name,region:parts.slice(1,3).join(', '),lat:Number(x.lat),lon:Number(x.lon)});
+  }
+  return out;
 });
 
 // Fish species observed near a lake, via the free iNaturalist API
