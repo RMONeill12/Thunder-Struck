@@ -63,24 +63,30 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   // reservoirs, fishing spots) are cheap to scan and keep the full 200 km reach.
   const sLat=0.55,sLon=Math.min(1.2,60/(111.32*Math.cos(lat*Math.PI/180)));
   const smallBox=`${(lat-sLat).toFixed(4)},${(lon-sLon).toFixed(4)},${(lat+sLat).toFixed(4)},${(lon+sLon).toFixed(4)}`;
-  const q=`[out:json][timeout:15];(nwr(${bigBox})[natural=water][name][wikidata];nwr(${bigBox})["water"~"^(lake|reservoir)$"][name];nwr(${bigBox})[landuse=reservoir][name];nwr(${bigBox})[leisure=fishing];)->.major;.major out center 800;(nwr(${smallBox})[natural=water][name]; - .major;)->.minor;.minor out center 400;`;
-  // Stagger the mirrors instead of hammering all three at once — repeated
-  // simultaneous requests during panning were tripping rate limits, which is
-  // why every mirror started failing together.
-  const endpoints=['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-  const delay=ms=>new Promise(r=>setTimeout(r,ms));
-  const fetchOverpass=async(endpoint,wait)=>{
-    await delay(wait);
-    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(17000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
-    if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
+  const q=`[out:json][timeout:15];(nwr(${bigBox})[natural=water][name][wikidata];nwr(${bigBox})["water"~"^(lake|reservoir)$"][name];nwr(${bigBox})[landuse=reservoir][name];nwr(${bigBox})[leisure=fishing];)->.major;.major out center 800;(wr(${smallBox})[natural=water][name]; - .major;)->.minor;.minor out center 400;`;
+  // Try mirrors one at a time (politer than parallel hammering) and record
+  // exactly why each one fails so problems are diagnosable from the UI.
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.osm.jp/api/interpreter'];
+  const fetchOverpass=async endpoint=>{
+    let response;
+    try{
+      response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(12000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+    }catch(err){throw new Error(err.name==='TimeoutError'?'timed out':'unreachable')}
+    if(response.status===429)throw new Error('rate limited (429)');
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    if(!response.headers.get('content-type')?.includes('json'))throw new Error('non-JSON reply');
     const json=await response.json();
-    if(json.remark&&/timed?[ _-]?out|error/i.test(json.remark))throw new Error('overpass timeout');
+    if(json.remark&&/timed?[ _-]?out|error/i.test(json.remark))throw new Error('server ran out of time');
     if(!Array.isArray(json.elements))throw new Error('bad payload');
     return json.elements; // an empty array here is a real "nothing mapped" answer
   };
   let overpassOk=false;
   let elements=[];
-  try{elements=await Promise.any(endpoints.map((e,i)=>fetchOverpass(e,i*4000)));overpassOk=true}catch{}
+  const attempts=[];
+  for(const endpoint of endpoints){
+    try{elements=await fetchOverpass(endpoint);overpassOk=true;break}
+    catch(err){const host=new URL(endpoint).hostname;attempts.push(`${host}: ${err.message}`);console.warn(`[lakes] ${host} failed — ${err.message}`)}
+  }
   const seenIds=new Set();
   const lakes=elements
     .filter(e=>{const id=`${e.type}/${e.id}`;if(seenIds.has(id))return false;seenIds.add(id);return!EXCLUDED_WATER.has(e.tags?.water)})
@@ -109,7 +115,7 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   // these for an hour was pinning junk results on screen.
   if(results.length){lakeCache.set(key,{time:Date.now()-55*60*1000,lakes:results});return results}
   if(overpassOk)return []; // genuinely no mapped waters here
-  throw new Error('Lake map servers are busy — try again in a moment');
+  throw new Error(`Lake servers unavailable — ${attempts.join(' · ')||'unknown error'}`);
 });
 
 // Type-ahead lake search for the fishing-map search bar (Nominatim, natural
