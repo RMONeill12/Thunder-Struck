@@ -49,31 +49,30 @@ ipcMain.handle('get-fishing-lakes',async(_event,{lat,lon})=>{
   const key=`${(Math.round(lat*20)/20).toFixed(2)},${(Math.round(lon*20)/20).toFixed(2)}`;
   const cached=lakeCache.get(key);
   if(cached&&Date.now()-cached.time<60*60*1000)return cached.lakes;
-  const around=`(around:${SEARCH_RADIUS_M},${lat},${lon})`;
-  // Two-tier query. Prairie/shield regions contain thousands of named sloughs
-  // and Overpass truncates in arbitrary database order, which was dropping
-  // major lakes (e.g. Lenore Lake). Tier 1 grabs significant waters first
-  // (wikidata-tagged, explicitly typed lakes/reservoirs, fishing spots) with
-  // its own generous limit, so small ponds can never crowd them out. Tier 2
-  // then fills in remaining named waters.
-  const q=`[out:json][timeout:15];
-(nwr${around}[natural=water][name][wikidata];
-nwr${around}["water"~"^(lake|reservoir|pond)$"][name];
-nwr${around}[landuse=reservoir][name];
-nwr${around}[leisure=fishing];)->.major;
-.major out center 800;
-(nwr${around}[natural=water][name]; - .major;)->.minor;
-.minor out center 300;`;
+    // Query a bounding box covering the 200 km circle instead of an
+  // around:200000 radius. Radius queries force Overpass to compute distances
+  // for every water feature (extremely slow over prairie slough country and
+  // it was timing out on all mirrors = zero results). Bbox queries hit the
+  // spatial index directly; the renderer trims results to 200 km client-side.
+  const dLat=1.85;
+  const dLon=Math.min(4,200/(111.32*Math.cos(lat*Math.PI/180)));
+  const bbox=`${(lat-dLat).toFixed(4)},${(lon-dLon).toFixed(4)},${(lat+dLat).toFixed(4)},${(lon+dLon).toFixed(4)}`;
+  // Two-tier query: significant waters (wikidata / typed lakes / reservoirs /
+  // fishing spots) get their own limit so ponds can't crowd them out, then
+  // remaining named waters fill in.
+  const q=`[out:json][timeout:25];(nwr(${bbox})[natural=water][name][wikidata];nwr(${bbox})["water"~"^(lake|reservoir)$"][name];nwr(${bbox})[landuse=reservoir][name];nwr(${bbox})[leisure=fishing];)->.major;.major out center 800;(nwr(${bbox})[natural=water][name]; - .major;)->.minor;.minor out center 400;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
   const fetchOverpass=async endpoint=>{
-    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(16000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(26000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
     if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
     const json=await response.json();
-    if(!Array.isArray(json.elements)||!json.elements.length)throw new Error('empty');
-    return json.elements;
+    if(json.remark&&/timed?[ _-]?out|error/i.test(json.remark))throw new Error('overpass timeout');
+    if(!Array.isArray(json.elements))throw new Error('bad payload');
+    return json.elements; // an empty array here is a real "nothing mapped" answer
   };
+  let overpassOk=false;
   let elements=[];
-  try{elements=await Promise.any(endpoints.map(fetchOverpass))}catch{}
+  try{elements=await Promise.any(endpoints.map(fetchOverpass));overpassOk=true}catch{}
   const seenIds=new Set();
   const lakes=elements
     .filter(e=>{const id=`${e.type}/${e.id}`;if(seenIds.has(id))return false;seenIds.add(id);return!EXCLUDED_WATER.has(e.tags?.water)})
@@ -95,8 +94,9 @@ nwr${around}[leisure=fishing];)->.major;
     }catch{}
     if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
   }
-  if(results.length)lakeCache.set(key,{time:Date.now(),lakes:results});
-  return results;
+  if(results.length){lakeCache.set(key,{time:Date.now(),lakes:results});return results}
+  if(overpassOk)return []; // genuinely no mapped waters here
+  throw new Error('Lake map servers are busy — try again in a moment');
 });
 
 // Fish species observed near a lake, via the free iNaturalist API
