@@ -81,6 +81,7 @@ body.light{
 }
 .light .titlebar{background:rgba(235,247,255,.8)}
 .brand{height:100%;display:flex;align-items:center;gap:10px;padding-left:18px;font-weight:650;font-size:13.5px;letter-spacing:.3px}
+.brand .version{color:var(--muted);font-size:10.5px;font-weight:600;padding:2px 7px;border:1px solid var(--line);border-radius:999px;background:var(--glass-hover);letter-spacing:.3px}
 .brand img{width:20px;height:24px;filter:drop-shadow(0 0 9px rgba(255,216,78,.85))}
 
 main{width:min(1320px,calc(100% - 48px));margin:auto;padding:26px 0 40px}

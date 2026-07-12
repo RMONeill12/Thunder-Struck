@@ -57,10 +57,10 @@ ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
   const bbox=`${south},${west},${north},${east}`;
   // Tag-only filters keep this query on Overpass indexes (fast); water-type
   // filtering happens below in JS.
-  const q=`[out:json][timeout:10];(nwr(${bbox})[natural=water][name];nwr(${bbox})[leisure=fishing];);out center 400;`;
+  const q=`[out:json][timeout:8];(nwr(${bbox})[natural=water][name];nwr(${bbox})[landuse=reservoir][name];nwr(${bbox})[water][name];nwr(${bbox})[leisure=fishing];);out center 400;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
   const fetchOverpass=async endpoint=>{
-    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(11000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
+    const response=await fetch(endpoint,{method:'POST',signal:AbortSignal.timeout(9000),headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`},body:`data=${encodeURIComponent(q)}`});
     if(!response.ok||!response.headers.get('content-type')?.includes('json'))throw new Error('bad response');
     const json=await response.json();
     if(!Array.isArray(json.elements)||!json.elements.length)throw new Error('empty');
@@ -78,7 +78,7 @@ ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
   const seen=new Set(),results=[];
   for(const term of ['lake','reservoir']){
     try{
-      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{signal:AbortSignal.timeout(8000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
+      const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${box}&q=${encodeURIComponent(term)}`,{signal:AbortSignal.timeout(6000),headers:{'User-Agent':`Thunder-Struck/${APP_VERSION} (RMO Productions)`}});
       if(response.ok)for(const x of await response.json()){
         const name=x.display_name.split(',')[0];
         if(seen.has(name.toLowerCase()))continue;
@@ -88,7 +88,7 @@ ipcMain.handle('get-fishing-lakes',async(_event,{south,west,north,east})=>{
     }catch{}
     if(term==='lake')await new Promise(resolve=>setTimeout(resolve,1000)); // Nominatim rate limit
   }
-  lakeCache.set(key,{time:Date.now(),lakes:results});
+  if(results.length)lakeCache.set(key,{time:Date.now(),lakes:results});
   return results;
 });
 
@@ -155,6 +155,7 @@ function createWindow() {
   const win = mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: false,
     minWidth: 900,
     minHeight: 620,
     backgroundColor: '#07111f',
@@ -170,6 +171,7 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'index.html'));
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
   win.on('close',e=>{if(!quitting&&readPrefs().notifications){e.preventDefault();win.hide()}});
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
